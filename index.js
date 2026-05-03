@@ -1,0 +1,272 @@
+const express = require('express');
+const fs = require('fs');
+const path = require('path');
+require('dotenv').config();
+const session = require('express-session');
+const Joi = require('joi');
+const bcrypt = require('bcrypt');
+const app = express();
+
+const MongoStore = require('connect-mongo');
+const mongoSanitizer = require('mongo-sanitizer').default;
+const { MongoClient } = require('mongodb');
+
+
+// --- MongoDB Connection Logic ---
+const url = `mongodb+srv://${process.env.MONGODB_USER}:${process.env.MONGODB_PASSWORD}@${process.env.MONGODB_HOST}`;
+const client = new MongoClient(url);
+
+// prevent the NoSql injection attacks
+app.use(mongoSanitizer(
+    { replaceWith: '_' }
+));
+
+let db;
+let usersCollection;
+
+async function connectDB() {
+    try {
+        await client.connect();
+        console.log("Connected successfully to MongoDB");
+        
+        db = client.db(process.env.MONGODB_DATABASE);
+        usersCollection = db.collection('users');
+    } catch (err) {
+        console.error("MongoDB connection failed:", err);
+    }
+}
+
+
+//Getting userdata from the browser in the Joi format so that there is noSQL injection 
+const signUpSchema = Joi.object({
+    name: Joi.string().alphanum().min(3).max(30).required(),
+    email: Joi.string().email().required(),
+    password: Joi.string().min(6).required()
+});
+
+const loginSchema = Joi.object({
+    email: Joi.string().email().required(),
+    password: Joi.string().required() // We don't need min(8) here, just check if it's provided
+});
+
+
+app.use(session({
+    secret: process.env.NODE_SESSION_SECRET,
+    // to store the session in the mongo
+    store: MongoStore.create({
+        mongoUrl: url,
+        crypto: {
+		    secret: process.env.MONGODB_SESSION_SECRET
+	    }
+    }), // stores the session in the db
+    saveUninitialized: false,
+    resave: false
+}
+));
+
+
+app.use(express.urlencoded({ extended: true }));
+
+
+// Serve static files so the UI can actually load the image via URL
+app.use(express.static('public'));
+
+app.get('/', (req, res) => {
+    let userName = req.session.userName;
+    if (userName) {
+        res.send(
+            `
+        <h2> Hello, ${userName}!</h2>
+        <a href= "/members"><button> Go to Members Area </button></a>
+        <a href="/logout"> <button> Logout</button></a>
+        `
+        )
+    } else {
+        res.send(
+            `
+        <a href="/signup"><button> Sign Up </button></a>
+        <a href="/login"><button> Log in </button></a>
+        `
+        );
+    }
+
+});
+
+app.get('/members', (req, res) => {
+    if (!req.session.userName) {
+        // if no session, redirect to Home
+        res.redirect("/");
+    }
+    let imageSrc;
+    const publicPath = path.join(__dirname, 'public/images');
+    fs.readdir(publicPath, (err, files) => {
+        if (err || files.length === 0) {
+            console.log('No images found', err);
+        }
+
+        // Pick a random one
+        const randomImage = files[Math.floor(Math.random() * files.length)];
+
+        // Send the URL or the filename back to the UI
+        imageSrc = `/images/${randomImage}`;
+
+        res.send(`
+            Hello, ${req.session.userName}, <br>
+            <img src=${imageSrc} alt='this is a pokemon'/> <br>
+            <a href="/logout"><button> Logout </button></a>
+        `);
+    });
+
+});
+
+app.get('/logout', (req, res) => {
+    req.session.destroy(() => {
+        res.redirect('/');
+    });
+});
+
+app.get('/signup', (req, res) => {
+    res.send(
+        `
+        <h2> create user </h2>
+        <form action= "/signupSubmit" method="post">
+            <input type="text" id="name" name="name" placeholder="name"/><br>
+            <input type="email" id="email" name="email" placeholder="email" /><br>
+            <input type="password" id="password" name="password" placeholder="password" /><br>
+            <input type="submit" /> 
+        </form>
+        `
+    );
+});
+
+app.post('/signupSubmit', async (req, res) => {
+    console.log(req.body);
+
+    const validationRes = signUpSchema.validate(req.body);
+    // console.log(validationRes);
+
+    // removed the if conditions did for each req.body.{field}, since joi schema validation is included in the code
+    if (validationRes.error) {
+        res.status(400).send(
+            `
+        <p>${validationRes.error}.</p>
+        <a href ="/signup"> Try again</a>
+        `
+        );
+    } else {
+
+        // let name = validationRes.value.name;
+        // let email = validationRes.value.email;
+        // let password = validationRes.value.password;
+
+        // Destructuring: https://www.w3schools.com/js/js_destructuring.asp
+        const { name, email, password } = validationRes.value;
+
+        // 1.add in database
+        try {
+            // 1a. check if the user already exists in the Db
+            // const existingUser = await User.findOne({email});
+            // if (existingUser) return res.status(404).send('User already registered.');
+
+            //1b. hash the password
+            const saltRounds = 12;
+            const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+            //1c. get users database
+            const users = db.collection('users');
+
+            // save to MongoDb
+            const result = await usersCollection.insertOne({
+                name,
+                email,
+                password: hashedPassword
+            });
+            console.log('User registered Successfully!', result);
+            // 2.session - set user
+            req.session.userName = name;
+            // 3.redirect
+            res.redirect("/members");
+        } catch (err) {
+            console.error(err);
+            res.send("Error registering user!");
+        }
+    }
+});
+
+app.get('/login', (req, res) => {
+    res.send(
+        `
+        <h2> create user </h2>
+        <form action= "/loginSubmit" method="post">
+            <input type="email" id="email" name="email" placeholder="email" /><br>
+            <input type="password" id="password" name="password" placeholder="password" /><br>
+            <input type="submit" /> 
+        </form>
+        `
+    );
+});
+
+app.post('/loginSubmit', async (req, res) => {
+    console.log(req.body);
+
+    const validationRes = loginSchema.validate(req.body);
+    // console.log(validationRes);
+
+    // removed the if conditions did for each req.body.{field}, since joi schema validation is included in the code
+    if (validationRes.error) {
+        res.status(400).send(
+            `
+        <p>${validationRes.error}.</p>
+        <a href ="/signup"> Try again</a>
+        `
+        );
+    } else {
+
+        // let name = validationRes.value.name;
+        // let email = validationRes.value.email;
+        // let password = validationRes.value.password;
+
+        // Destructuring: https://www.w3schools.com/js/js_destructuring.asp
+        const { email, password } = validationRes.value;
+
+        try {
+
+            //1 Check if user is in the database
+            const user = await usersCollection.findOne({ email });
+
+            if (user) {
+                // 2. Compare the password with the hashed password in DB
+                // Use compare method to compare the hashed password with plain one (comes in post request)
+                const validPassword = await bcrypt.compare(password, user.password);
+                console.log(validPassword);
+                if (!validPassword) {
+                    return res.status(400).send('Invalid email or password.');
+                }
+                // 3.session - set user
+                req.session.userName = user.name;
+                // 4.redirect
+                res.redirect("/members");
+            } else {
+                res.send(`
+                    <p>User not found.</p>
+                    <a href ="/signup"> Try Sign up again</a>
+                    `);
+            }
+        } catch (err) {
+            console.error(err);
+            res.send("Error processing login!");
+        }
+    }
+});
+
+app.use((req, res) => {
+    res.status(404).send("Page not found - 404");
+});
+
+const PORT = 3000;
+
+app.listen(PORT, async () => {
+    connectDB();
+    console.log(`Listening on ${PORT}`);
+})
+
