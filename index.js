@@ -7,9 +7,10 @@ const Joi = require('joi');
 const bcrypt = require('bcrypt');
 const app = express();
 
-const MongoStore = require('connect-mongo');
+const { MongoStore } = require('connect-mongo');
 const mongoSanitizer = require('mongo-sanitizer').default;
 const { MongoClient } = require('mongodb');
+const { createKrupteinAdapter } = require('connect-mongo');
 
 
 // --- MongoDB Connection Logic ---
@@ -28,7 +29,7 @@ async function connectDB() {
     try {
         await client.connect();
         console.log("Connected successfully to MongoDB");
-        
+
         db = client.db(process.env.MONGODB_DATABASE);
         usersCollection = db.collection('users');
     } catch (err) {
@@ -54,13 +55,14 @@ app.use(session({
     secret: process.env.NODE_SESSION_SECRET,
     // to store the session in the mongo
     store: MongoStore.create({
-        mongoUrl: url,
-        crypto: {
-		    secret: process.env.MONGODB_SESSION_SECRET
-	    }
+        mongoUrl: `${url}/${process.env.MONGODB_SESSION_DATABASE}`,
+        cryptoAdapter: createKrupteinAdapter({
+            secret: process.env.MONGODB_SESSION_SECRET
+        }),
+        ttl: 60 * 60
     }), // stores the session in the db
     saveUninitialized: false,
-    resave: false
+    resave: false,
 }
 ));
 
@@ -95,13 +97,14 @@ app.get('/', (req, res) => {
 app.get('/members', (req, res) => {
     if (!req.session.userName) {
         // if no session, redirect to Home
-        res.redirect("/");
+        return res.redirect("/");
     }
     let imageSrc;
     const publicPath = path.join(__dirname, 'public/images');
     fs.readdir(publicPath, (err, files) => {
         if (err || files.length === 0) {
             console.log('No images found', err);
+            return res.status(500).send("No images available");
         }
 
         // Pick a random one
@@ -244,8 +247,7 @@ app.post('/loginSubmit', async (req, res) => {
                 }
                 // 3.session - set user
                 req.session.userName = user.name;
-                // 4.redirect
-                res.redirect("/members");
+                return res.redirect("/members");
             } else {
                 res.send(`
                     <p>User not found.</p>
