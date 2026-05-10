@@ -1,0 +1,11 @@
+<%- include ('templates/header') %>
+
+  <h2 class="text-center mt-3"> Create user </h2>
+        <form action= "/signupSubmit" method="post" class="container-fluid d-flex flex-column align-items-center mt-5">
+            <input type="text" id="name" name="name" placeholder="name"/><br>
+            <input type="email" id="email" name="email" placeholder="email" /><br>
+            <input type="password" id="password" name="password" placeholder="password" /><br>
+            <button type="submit" class="btn btn-primary"> Sign Up </button>
+        </form>
+
+<%- include ('templates/footer') %>

@@ -11,6 +11,7 @@ const { MongoStore } = require('connect-mongo');
 const mongoSanitizer = require('mongo-sanitizer').default;
 const { MongoClient } = require('mongodb');
 const { createKrupteinAdapter } = require('connect-mongo');
+const { name } = require('ejs');
 
 
 // --- MongoDB Connection Logic ---
@@ -66,58 +67,37 @@ app.use(session({
 }
 ));
 
-
+// Middleware to parse URL-encoded bodies (as sent by HTML forms)
 app.use(express.urlencoded({ extended: true }));
-
 
 // Serve static files so the UI can actually load the image via URL
 app.use(express.static('public'));
 
+// Set EJS as the view engine
+app.set('view engine', 'ejs');
+
 app.get('/', (req, res) => {
     let userName = req.session.userName;
-    if (userName) {
-        res.send(
-            `
-        <h2> Hello, ${userName}!</h2>
-        <a href= "/members"><button> Go to Members Area </button></a>
-        <a href="/logout"> <button> Logout</button></a>
-        `
-        )
-    } else {
-        res.send(
-            `
-        <a href="/signup"><button> Sign Up </button></a>
-        <a href="/login"><button> Log in </button></a>
-        `
-        );
-    }
-
+    let page = "home";
+    res.render('index', { userName, page });
 });
 
 app.get('/members', (req, res) => {
-    if (!req.session.userName) {
+    let userName = req.session.userName;
+    let page = "members";
+    if (!userName) {
         // if no session, redirect to Home
         return res.redirect("/");
     }
-    let imageSrc;
     const publicPath = path.join(__dirname, 'public/images');
-    fs.readdir(publicPath, (err, files) => {
-        if (err || files.length === 0) {
+    fs.readdir(publicPath, (err, imageFiles) => {
+        if (err || imageFiles.length === 0) {
             console.log('No images found', err);
             return res.status(500).send("No images available");
         }
 
-        // Pick a random one
-        const randomImage = files[Math.floor(Math.random() * files.length)];
-
         // Send the URL or the filename back to the UI
-        imageSrc = `/images/${randomImage}`;
-
-        res.send(`
-            Hello, ${req.session.userName}, <br>
-            <img src=${imageSrc} alt='this is a pokemon'/> <br>
-            <a href="/logout"><button> Logout </button></a>
-        `);
+        res.render('members', { userName, imageFiles, page });
     });
 
 });
@@ -129,17 +109,8 @@ app.get('/logout', (req, res) => {
 });
 
 app.get('/signup', (req, res) => {
-    res.send(
-        `
-        <h2> create user </h2>
-        <form action= "/signupSubmit" method="post">
-            <input type="text" id="name" name="name" placeholder="name"/><br>
-            <input type="email" id="email" name="email" placeholder="email" /><br>
-            <input type="password" id="password" name="password" placeholder="password" /><br>
-            <input type="submit" /> 
-        </form>
-        `
-    );
+    let page = "signup";
+    res.render('signup', { page });
 });
 
 app.post('/signupSubmit', async (req, res) => {
@@ -164,6 +135,12 @@ app.post('/signupSubmit', async (req, res) => {
 
         // Destructuring: https://www.w3schools.com/js/js_destructuring.asp
         const { name, email, password } = validationRes.value;
+        let isAdmin;
+        if (email === process.env.DEFAULT_SITE_ADMIN) {
+            isAdmin = true;
+        } else {
+            isAdmin = false;
+        }
 
         // 1.add in database
         try {
@@ -182,11 +159,14 @@ app.post('/signupSubmit', async (req, res) => {
             const result = await usersCollection.insertOne({
                 name,
                 email,
-                password: hashedPassword
+                password: hashedPassword,
+                isAdmin
             });
             console.log('User registered Successfully!', result);
             // 2.session - set user
             req.session.userName = name;
+            // 2.a Set isAdmin flag in Session
+            req.session.isAdmin = isAdmin;
             // 3.redirect
             res.redirect("/members");
         } catch (err) {
@@ -197,16 +177,8 @@ app.post('/signupSubmit', async (req, res) => {
 });
 
 app.get('/login', (req, res) => {
-    res.send(
-        `
-        <h2> create user </h2>
-        <form action= "/loginSubmit" method="post">
-            <input type="email" id="email" name="email" placeholder="email" /><br>
-            <input type="password" id="password" name="password" placeholder="password" /><br>
-            <input type="submit" /> 
-        </form>
-        `
-    );
+    let page = "login";
+    res.render('login', { page });
 });
 
 app.post('/loginSubmit', async (req, res) => {
@@ -247,6 +219,17 @@ app.post('/loginSubmit', async (req, res) => {
                 }
                 // 3.session - set user
                 req.session.userName = user.name;
+
+                // if (user.isAdmin != undefined) {
+                //     req.session.isAdmin = user.isAdmin;
+                // } else {
+                //     req.session.isAdmin = false; // default
+                // }
+                // const b = user.isAdmin != undefined ? true : false;
+                // const b = user.isAdmin != undefined;
+
+                // const b = user?.isAdmin;
+                req.session.isAdmin = user.isAdmin ? true : false; // ternary operator
                 return res.redirect("/members");
             } else {
                 res.send(`
@@ -261,8 +244,63 @@ app.post('/loginSubmit', async (req, res) => {
     }
 });
 
+const users = [{
+    name: "Varshini",
+    email: "varshini@gmail.com",
+    role: "user"
+}, {
+    name: "Krish",
+    email: "krish@gmail.com",
+    role: "admin"
+}, {
+    name: "Nava",
+    email: "nava@gmail.com",
+    role: "user"
+}, {
+    name: "Sundari",
+    email: "sundari@gmail.com",
+    role: "user"
+}, {
+    name: "Babu",
+    email: "babu@gmail.com",
+    role: "user"
+}, {
+    name: "Kaushikh",
+    email: "kaushikh@gmail.com",
+    role: "admin"
+}, {
+    name: "Surriya",
+    email: "surriya@gmail.com",
+    role: "admin"
+}, {
+    name: "Swetha",
+    email: "swetha@gmail.com",
+    role: "user"
+}, {
+    name: " Surya",
+    email: "Surya@gmail.com",
+    role: "admin"
+}, {
+    name: "Abu",
+    email: "abu@gmail.com",
+    role: "admin"
+}];
+
+app.get('/admin', (req, res) => {
+    if (!req.session.userName) {
+        return res.redirect("/");
+    }
+    if (req.session.isAdmin) {
+        return res.render('admin', { users, page: "admin" });
+    } else {
+        return res.status(403).send("403 - Not Authorized");
+    }
+});
+
 app.use((req, res) => {
-    res.status(404).send("Page not found - 404");
+    res.status(404);
+    let page = "404";
+    res.render('404', { page: "404" });
 });
 
 const PORT = 3000;

@@ -1,0 +1,16 @@
+<%- include ('templates/header') %>
+    <% if (userName) { %>
+
+        <div class="container-fluid d-flex flex-column align-items-center gap-3 mt-5">
+            <h2 text-center mt-3> Hello, <%= userName %>!</h2>
+            <a href="/members"><button class="btn btn-primary"> Go to Members Area </button></a>
+            <a href="/logout"> <button class="btn btn-primary"> Logout</button></a>
+        </div>
+
+        <% } else { %>
+            <div class="container-fluid d-flex flex-column align-items-center gap-3 mt-5">
+                <a href="/signup"><button class="btn btn-primary "> Sign Up </button></a>
+                <a href="/login"><button class="btn btn-primary "> Log in </button></a>
+            </div>
+            <% } %>
+                <%- include ('templates/footer') %>

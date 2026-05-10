@@ -1,0 +1,15 @@
+<%- include('templates/header') %>
+
+    <h3 class="text-center mt-3"> Users</h3> <br>
+
+    <% for(let i=0; i < users.length; i++) { %>
+        <div class="container-fluid d-flex flex-row align-items-center gap-3 mt-5 w-50">
+            <p class="text-center mt-0 mb-0 flex-fill flex-wrap">
+                <%= users[i].name %>
+            </p>
+            <a href=""><button class="btn btn-success flex-fill"> Promote to Admin </button></a>
+            <a href=""> <button class="btn btn-danger flex-fill mx-auto px-6 me-5"> Demote to User</button></a>
+        </div>
+        <% } %>
+            <br><br><br>
+            <%- include('templates/footer') %>
